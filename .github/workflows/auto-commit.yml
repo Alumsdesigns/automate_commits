@@ -1,0 +1,88 @@
+name: Demo Site Auto Commit
+
+on:
+  schedule:
+    - cron: '0 17-22 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate_and_commit:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Identify Workflow
+        run: |
+            echo "Running workflow: $GITHUB_WORKFLOW"
+
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false # disable default GITHUB_TOKEN auth
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Generate demo files
+        run: python generate_demo.py
+
+      - name: Clean any cached credentials
+        run: |
+          echo "🧹 Clearing old credentials and GitHub configs..."
+          git config --unset-all http.https://github.com/.extraheader || true
+          git remote remove origin || true
+          git remote add origin https://x-access-token:${{ secrets.AUTOMATE_COMMITS }}@github.com/MarthaTaylor/automate-git-commits.git
+
+
+      - name: Verify GitHub PAT Access
+        run: |
+          echo "✅ PAT present? ${AUTOMATE_COMMITS:+yes}"
+          echo "PAT is set: ${AUTOMATE_COMMITS:+yes}"
+          echo "PAT length: ${#AUTOMATE_COMMITS}"
+        env:
+          AUTOMATE_COMMITS: ${{ secrets.AUTOMATE_COMMITS }}
+
+
+      - name: Commit & Push Demo Files
+        run: |
+          echo "✅ Current directory: $(pwd)"
+          git status
+          git branch
+          
+          git config user.name "MarthaTaylor"
+          git config user.email "marthadigitalize@gmail.com"
+
+          echo "✅ Current user info:"
+
+          echo "Git user.name:"
+          git config user.name || echo "No user.name set"
+          echo "Git user.email:"
+          git config user.email || echo "No user.email set"
+
+          # Re-authenticate remote with PAT
+          git remote set-url origin https://x-access-token:${{ secrets.AUTOMATE_COMMITS }}@github.com/MarthaTaylor/automate-git-commits.git
+
+          echo "✅ Remote info:"
+          git remote -v
+          echo "✅ PAT present? ${AUTOMATE_COMMITS:+yes}"
+
+          # Stage and commit changes
+          git add site/
+          git diff --cached --quiet || git commit -m "feat(demo): add page and style demo for $(date -u)"
+
+          # Show debug info before push
+          git status
+          git log -1
+
+          echo "🔍 Double-checking current remote:"
+          git remote -v
+
+          echo "🚀 Pushing changes..."
+          git push origin main || (echo "❌ Push failed!" && exit 1)
+        env:
+          AUTOMATE_COMMITS: ${{ secrets.AUTOMATE_COMMITS }}

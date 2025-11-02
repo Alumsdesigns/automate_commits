@@ -1,0 +1,10 @@
+.demo {
+  display: flex;
+  gap: 1rem;
+}
+.box {
+  background: lavender;
+  padding: clamp(1rem, 2vw, 3rem);
+  flex: 1;
+  text-align: center;
+}

@@ -1,0 +1,13 @@
+body {
+  font-size: clamp(1rem, 2vw, 1.5rem);
+}
+.demo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.box {
+  background: peachpuff;
+  flex: 1 1 200px;
+  padding: 1rem;
+}

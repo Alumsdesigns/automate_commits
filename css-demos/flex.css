@@ -1,0 +1,11 @@
+.demo {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-around;
+}
+.box {
+  background: lightblue;
+  padding: 1rem;
+  flex: 1;
+  text-align: center;
+}

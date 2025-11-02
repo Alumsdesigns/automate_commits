@@ -1,0 +1,501 @@
+# name: CI
+# on:
+#   push:
+#     branches:
+#       - main
+#       - 'feature/**'
+#       - 'feat/**'
+#       - 'milestone**'
+#   pull_request:              
+#     branches:
+#       - main
+#       - 'feature/**'
+#       - 'feat/**'
+
+# permissions:
+#   contents: write  
+#   packages: read 
+#   pull-requests: write        
+
+# jobs:
+#   test-<front-end-app-name>:
+#     name: Test 
+#     runs-on: ubuntu-latest
+#     permissions:
+#       contents: write
+#       pull-requests: write 
+#       issues: write 
+#       packages: read 
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '22'
+#           cache: 'npm'
+#           cache-dependency-path: <front-end-app-name>/package-lock.json
+#           registry-url: 'https://npm.pkg.github.com' 
+
+#       - name: Install dependencies
+#         run: npm ci
+#         working-directory: ./<front-end-app-name>
+#         env:
+#           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+#       - name: Lint Service
+#         run: npm run lint --if-present
+#         working-directory: ./<front-end-app-name>
+
+#       - name: Lint Infrastructure
+#         run: npm run lint --if-present
+#         working-directory: ./infra
+
+#       - name: Build TypeScript
+#         run: npm run build
+#         working-directory: ./<front-end-app-name>
+
+#       # --- Security Checks (aggregate results) ---
+#       - name: Run npm audit (prod only)
+#         id: audit
+#         run: |
+#           set +e
+#           OUTPUT=$(npm audit --omit=dev --json || true)
+#           echo "$OUTPUT" > audit.json
+#           CRITICAL=$(jq '.metadata.vulnerabilities.critical' audit.json)
+#           HIGH=$(jq '.metadata.vulnerabilities.high' audit.json)
+#           echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+#           echo "high=$HIGH" >> $GITHUB_OUTPUT
+#           if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+#             echo "status=fail" >> $GITHUB_OUTPUT
+#           else
+#             echo "status=pass" >> $GITHUB_OUTPUT
+#           fi
+#         working-directory: ./<front-end-app-name>
+
+#       - name: Run blacklist check
+#         id: blacklist
+#         run: |
+#           pwd && ls -la
+#           set +e 
+#           if node ../scripts/check-blacklist.js; then
+#             echo "status=pass" >> $GITHUB_OUTPUT
+#           else
+#             echo "status=fail" >> $GITHUB_OUTPUT
+#             exit 1
+#           fi
+#         working-directory: ./<front-end-app-name>
+
+#       - name: Run registry check
+#         id: reg
+#         run: |
+#           if node ../scripts/check-reg.js; then
+#             echo "status=pass" >> $GITHUB_OUTPUT
+#           else
+#             echo "status=fail" >> $GITHUB_OUTPUT
+#             exit 1
+#           fi
+#         working-directory: ./<front-end-app-name>
+
+#       - name: Post Security Summary Comment
+#         if: always()
+#         uses: actions/github-script@v7
+#         with:
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           script: |
+#             const marker = "<!-- security-summary -->";
+#             const auditStatus = "${{ steps.audit.outputs.status }}";
+#             const critical = "${{ steps.audit.outputs.critical }}";
+#             const high = "${{ steps.audit.outputs.high }}";
+#             const blacklistStatus = "${{ steps.blacklist.outputs.status }}";
+#             const regStatus = "${{ steps.reg.outputs.status }}";
+
+#             function statusIcon(status) {
+#               return status === "pass" ? "✅ Pass" : "❌ Fail";
+#             }
+
+#             let auditNotes = auditStatus === "fail"
+#               ? `${critical} Critical, ${high} High`
+#               : "No high/critical vulnerabilities (prod only)";
+#             let blacklistNotes = blacklistStatus === "fail"
+#               ? "Disallowed dependencies found"
+#               : "No disallowed deps";
+#             let regNotes = regStatus === "fail"
+#               ? "Untrusted registry versions detected"
+#               : "All deps from trusted registry";
+
+#             const body = `${marker}
+#             ## 🔐 Dependency Security Report
+
+#             | Check              | Status      | Notes |
+#             |--------------------|-------------|-------|
+#             | npm audit (prod)   | ${statusIcon(auditStatus)} | ${auditNotes} |
+#             | Blacklist check    | ${statusIcon(blacklistStatus)} | ${blacklistNotes} |
+#             | Registry check     | ${statusIcon(regStatus)} | ${regNotes} |
+
+#             > Only **production dependencies** are audited with \`npm audit\`.
+#             `;
+
+#             // Update or create comment
+#             if (context.eventName === "pull_request") {
+#               const prNumber = context.payload.pull_request.number;
+#               const { data: comments } = await github.rest.issues.listComments({
+#                 owner: context.repo.owner,
+#                 repo: context.repo.repo,
+#                 issue_number: prNumber,
+#               });
+#               const botComment = comments.find(c => c.body && c.body.includes(marker));
+#               if (botComment) {
+#                 await github.rest.issues.updateComment({
+#                   owner: context.repo.owner,
+#                   repo: context.repo.repo,
+#                   comment_id: botComment.id,
+#                   body,
+#                 });
+#               } else {
+#                 await github.rest.issues.createComment({
+#                   owner: context.repo.owner,
+#                   repo: context.repo.repo,
+#                   issue_number: prNumber,
+#                   body,
+#                 });
+#               }
+#             }
+
+#       - name: Run tests generate reports dir
+#         run: npm run test
+#         working-directory: ./<front-end-app-name>
+
+#       - name: Run tests generate reports dir
+#         run: npm run test:all
+#         working-directory: ./<front-end-app-name>
+
+#       - name: List reports directory
+#         run: ls -la <front-end-app-name>/reports || echo "No reports directory found"
+
+#       - name: List coverage directory contents
+#         run: ls -la <front-end-app-name>/coverage || echo "No coverage directory found"
+
+#       - name: Upload coverage report
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: coverage-report
+#           path: <front-end-app-name>/coverage
+
+#       - name: Test Report
+#         uses: dorny/test-reporter@v2
+#         if: ${{ !cancelled() }} 
+#         with:
+#           name: JEST Tests
+#           path: <front-end-app-name>/reports/jest-*.xml 
+#           reporter: jest-junit 
+#           fail-on-empty: false
+          
+#       - name: Post or update coverage summary on PR
+#         if: always()
+#         uses: actions/github-script@v6
+#         with:
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           script: |
+#             const fs = require('fs');
+#             const marker = '<!-- coverage-comment -->';
+#             const path = '<front-end-app-name>/coverage/coverage-summary.json';
+#             const thresholdValue = 90;
+#             const coverageThreshold = {
+#               branches: thresholdValue,
+#               functions: thresholdValue,
+#               lines: thresholdValue,
+#               statements: thresholdValue,
+#             };
+#             let cov = null; // Ensure cov is always defined
+#             let errorOccurred = false;
+#             let failureMessages = [];
+#             const now = new Date();
+#             // Format timestamp as '14th July 2025, 17:28:15'
+#             function getOrdinal(n) {
+#               const s = ["th", "st", "nd", "rd"], v = n % 100;
+#               return n + (s[(v - 20) % 10] || s[v] || s[0]);
+#             }
+#             const day = getOrdinal(now.getDate());
+#             const month = now.toLocaleString('en-GB', { month: 'long', timeZone: 'Europe/London' });
+#             const year = now.getFullYear();
+#             const time = now.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Europe/London' });
+#             const timestamp = `${day} ${month} ${year}, ${time}`;
+#             // Use PR branch tip SHA if available, otherwise fallback to context.sha
+#             let commitSha = context.sha;
+#             if (context.payload && context.payload.pull_request && context.payload.pull_request.head && context.payload.pull_request.head.sha) {
+#               commitSha = context.payload.pull_request.head.sha;
+#             }
+#             let body = `${marker}\n### 🧪 Unit Test Results (${timestamp})\nCommit: ${commitSha}\n\n`;
+#             body += `> **Note:** This coverage summary is always up-to-date with the latest commit.\n> Full per-file breakdown is shown for transparency.\n`;
+#             if (!fs.existsSync(path)) {
+#               body += "❌ **Error**: `coverage-summary.json` was not found.\n\nMake sure your tests generate coverage before this step.";
+#               errorOccurred = true;
+#               failureMessages.push('Error: `coverage-summary.json` not found.');
+#             } else {
+#               cov = JSON.parse(fs.readFileSync(path, 'utf8'));
+#               let coverageTotal = cov.total;
+#               const header = '| File | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s |\n' +
+#                             '|------|---------|----------|---------|---------|-------------------|\n';
+#               // Prepare per-file uncovered lines from coverage-final.json
+#               let uncoveredLines = {};
+#               try {
+#                 const finalPath = '<front-end-app-name>/coverage/coverage-final.json';
+#                 if (fs.existsSync(finalPath)) {
+#                   const finalCov = JSON.parse(fs.readFileSync(finalPath, 'utf8'));
+#                   for (const [file, data] of Object.entries(finalCov)) {
+#                     const lines = [];
+#                     for (const [line, hits] of Object.entries(data.l)) {
+#                       if (hits === 0) lines.push(Number(line));
+#                     }
+#                     uncoveredLines[file.replace(process.cwd() + '/', '')] = lines;
+#                   }
+#                 }
+#               } catch (e) {
+#                 // ignore, just don't show uncovered lines
+#               }
+#               // Helper to get uncovered lines for a file
+#               function getUncovered(file) {
+#                 // Try exact match, then fallback to basename match
+#                 if (uncoveredLines[file]) return uncoveredLines[file].join(', ');
+#                 const base = file.split('/').pop();
+#                 for (const [k, v] of Object.entries(uncoveredLines)) {
+#                   if (k.endsWith('/' + base)) return v.join(', ');
+#                 }
+#                 return '';
+#               }
+#               // Build table rows as a single string in JS, starting with the 'All files' row
+#               let rows = '';
+#               rows += '| **All files** | ' + cov.total.statements.pct + ' | ' + cov.total.branches.pct + ' | ' + cov.total.functions.pct + ' | ' + cov.total.lines.pct + ' |  |\n';
+#               for (const [file, stats] of Object.entries(cov)) {
+#                 if (file === 'total') continue;
+#                 rows += '| ' + file + ' | ' + stats.statements.pct + ' | ' + stats.branches.pct + ' | ' + stats.functions.pct + ' | ' + stats.lines.pct + ' | ' + getUncovered(file) + ' |\n';
+#               }
+#               const failedKeys = Object.entries(coverageThreshold).filter(([key, threshold]) => coverageTotal[key].pct < threshold);
+#               if (failedKeys.length > 0) {
+#                 body += `❌ **CI failed due to test coverage issues**\n\n`;
+#                 failedKeys.forEach(([key, threshold]) => {
+#                   const pct = coverageTotal[key].pct;
+#                   body += `- ${key.charAt(0).toUpperCase() + key.slice(1)}: ${pct}% (expected ${threshold}%)\n`;
+#                   failureMessages.push(`❌ Coverage threshold not met: ${key}: ${pct}% (expected ${threshold}%)`);
+#                 });
+#                 errorOccurred = true;
+#               } else {
+#                 const thresholdMsg = Object.entries(coverageThreshold)
+#                   .map(([k, v]) => `${k} ≥ ${v}%`).join(', ');
+#                 body += `✅ **All coverage thresholds met.** (Expected: ${thresholdMsg})\n`;
+#               }
+#               body += `\n**Overall:** branches ${coverageTotal.branches.pct}%, stmts ${coverageTotal.statements.pct}%, lines ${coverageTotal.lines.pct}%, funcs ${coverageTotal.functions.pct}%\n\n`;
+#               // Add the full coverage table in a collapsible section
+#               body += `<details>\n<summary>Per-file coverage breakdown</summary>\n\n`;
+#               body += header;
+#               if (rows) {
+#                 body += rows;
+#               }
+#               body += `</details>\n`;
+#             }
+#             // PR comment logic
+#             if (context.eventName === 'pull_request') {
+#               const prNumber = context.payload.pull_request.number;
+#               const { data: comments } = await github.rest.issues.listComments({
+#                 owner: context.repo.owner,
+#                 repo: context.repo.repo,
+#                 issue_number: prNumber,
+#               });
+#               const botComment = comments.find(comment =>
+#                 comment.body && comment.body.includes(marker)
+#               );
+#               if (botComment) {
+#                 await github.rest.issues.updateComment({
+#                   owner: context.repo.owner,
+#                   repo: context.repo.repo,
+#                   comment_id: botComment.id,
+#                   body
+#                 });
+#                 console.log(`Updated existing coverage comment ${botComment.id} on PR #${prNumber}`);
+#               } else {
+#                 await github.rest.issues.createComment({
+#                   owner: context.repo.owner,
+#                   repo: context.repo.repo,
+#                   issue_number: prNumber,
+#                   body
+#                 });
+#                 console.log(`Created new coverage comment on PR #${prNumber}`);
+#               }
+#             } else if (context.eventName === 'push') {
+#               await github.rest.repos.createCommitComment({
+#                 owner: context.repo.owner,
+#                 repo: context.repo.repo,
+#                 commit_sha: context.sha,
+#                 body
+#               });
+#               console.log(`Created new coverage commit comment for commit ${context.sha}`);
+#             }
+#             if (errorOccurred) {
+#               // Only use core.setFailed for failure output, including the Overall summary
+#               let overallSummary = '';
+#               if (cov && cov.total) {
+#                 const overall = cov.total;
+#                 overallSummary = `\n\nOverall: branches ${overall.branches.pct}%, stmts ${overall.statements.pct}%, lines ${overall.lines.pct}%, funcs ${overall.functions.pct}%`;
+#               }
+#               core.setFailed(`🔴 CI failed due to test coverage issues:\n\n${failureMessages.join('\n')}${overallSummary}`);
+#             } 
+
+#   update-last-updated:
+#     name: Update changed diagram md files with new timestamp
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+#         with:
+#           fetch-depth: 0  
+
+#       - name: Set up Git config
+#         run: |
+#           git config --global user.name "GitHub Action Bot"
+#           git config --global user.email "action@github.com"
+      
+#       - name: Update _Last updated_ timestamps in changed markdown files
+#         run: |
+#           set -eo pipefail
+
+#           echo "Preparing to update markdown timestamps..."
+
+#           # Use BST – Europe/London timezone
+#           TIMESTAMP=$(TZ='Europe/London' date '+%d %B %Y %H:%M UCT')
+#           echo "New timestamp: $TIMESTAMP"
+
+#           echo "Finding markdown files changed in the latest commit..."
+#           LAST_COMMIT=$(git rev-parse HEAD)
+#           echo "Commit: $LAST_COMMIT"
+
+#           # Get list of changed .md files in last commit
+#           CHANGED_MD_FILES=$(git show --pretty="" --name-only "$LAST_COMMIT" | grep '^docs/architecture-diagrams/.*\.md$' || true)
+
+#           echo "Markdown files changed:"
+#           echo "$CHANGED_MD_FILES"
+
+#           UPDATED=false
+
+#           for file in $CHANGED_MD_FILES; do
+#             if [ ! -f "$file" ]; then
+#               echo "File does not exist (likely deleted): $file"
+#               continue
+#             fi
+
+#             # Remove any line that starts with _Last updated (partial or malformed)
+#             if grep -Eq "^_L|^_Last update|^_Last updated" "$file"; then
+#               echo "Removing malformed or partial '_Last updated' lines in: $file"
+              
+#               # Delete any line that starts with _L or _Last update or _Last updated (even if malformed)
+#               sed -i.bak '/^_L.*/d;/^_La.*/d;/^_Last update.*/d;/^_Last updated.*/d' "$file"
+#               rm "$file.bak"
+
+#               # Add newline only if last line isn't blank
+#               if [ "$(tail -n1 "$file")" != "" ]; then
+#                 echo "" >> "$file"
+#               fi
+
+#               # Append correct updated line
+#               echo "_Last updated: $TIMESTAMP" >> "$file"
+
+#               git add "$file"
+#               UPDATED=true
+#             else
+#               echo "Adding new '_Last updated:' to $file"
+#               # Add newline only if last line isn't blank
+#               if [ "$(tail -n1 "$file")" != "" ]; then
+#                 echo "" >> "$file"
+#               fi
+
+#               # Append correct updated line
+#               echo "_Last updated: $TIMESTAMP" >> "$file"
+#               git add "$file"
+#               UPDATED=true
+#             fi
+#           done
+
+#           if $UPDATED; then
+#             echo "Committing timestamp updates..."
+#             git commit -m "ci: update _Last updated timestamp in recently changed markdown files"
+#             echo "Pushing changes back to branch: ${{ github.ref_name }}"
+#             git pull --rebase origin ${{ github.ref_name }}
+#             git push origin HEAD:${{ github.ref_name }}
+#           else
+#             echo "No markdown files required timestamp updates."
+#           fi
+          
+#   test-infrastructure:
+#     name: Test Infrastructure
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '22'
+#           cache: 'npm'
+#           cache-dependency-path: |
+#             infra/package-lock.json
+#             <front-end-app-name>/package-lock.json
+#           registry-url: 'https://npm.pkg.github.com'
+
+#       - name: Install <front-end-app-name> dependencies
+#         run: npm ci
+#         working-directory: ./<front-end-app-name>
+#         env:
+#           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+#       - name: Build <front-end-app-name>
+#         run: npm run build
+#         working-directory: ./<front-end-app-name>
+
+#       - name: Verify <front-end-app-name> dist directory
+#         run: |
+#           if [ -d "<front-end-app-name>dist" ]; then
+#             echo "✅ <front-end-app-name>/dist directory created"
+#             echo "Contents:"
+#             ls -la  <front-end-app-name>/dist/
+#           else
+#             echo "❌ ERROR: "<front-end-app-name>/dist directory not found after build!"
+#             echo "Build may have failed. Checking for common output directories:"
+#             find <front-end-app-name> -name "*.js" -type f | head -10 || echo "No JS files found"
+#             exit 1
+#           fi
+
+#       - name: Install infrastructure dependencies
+#         run: npm ci
+#         working-directory: ./infra
+
+#       - name: Build infrastructure TypeScript
+#         run: npm run build
+#         working-directory: ./infra
+
+#       - name: Run CDK Synth (Validation)
+#         run: |
+#           # Test synthesis with minimal required context
+#           npx cdk synth --context stack=stack-name \
+#             --context accountId=12345678 \
+#             --context region=eu-west-2 \
+#             --context environment=test \
+#             --context profile=existing-resources
+#         working-directory: ./infrastucture
+#         env:
+#           EXISTING_BUCKET_NAME: "123456789012"
+#           CONNECT_INSTANCE_ID: "123456789012"
+
+#       - name: Run Infrastructure Tests (if available)
+#         run: |
+#           if [ -f "package.json" ] && npm run | grep -q "test"; then
+#             npm test
+#           else
+#             echo "No tests found for infrastructure"
+#           fi
+#         working-directory: ./infra
+           
