@@ -36,7 +36,7 @@ jobs:
           echo "🧹 Clearing old credentials and GitHub configs..."
           git config --unset-all http.https://github.com/.extraheader || true
           git remote remove origin || true
-          git remote add origin https://x-access-token:${{ secrets.AUTOMATE_COMMITS }}@github.com/MarthaTaylor/automate-git-commits.git
+          git remote add origin https://x-access-token:${{ secrets.AUTOMATE_COMMITS }}@github.com/Alumsdesigns/automate_commits.git
 
 
       - name: Verify GitHub PAT Access
@@ -65,7 +65,7 @@ jobs:
           git config user.email || echo "No user.email set"
 
           # Re-authenticate remote with PAT
-          git remote set-url origin https://x-access-token:${{ secrets.AUTOMATE_COMMITS }}@github.com/MarthaTaylor/automate-git-commits.git
+          git remote set-url origin https://x-access-token:${{ secrets.AUTOMATE_COMMITS }}@github.com/Alumsdesigns/automate_commits.git
 
           echo "✅ Remote info:"
           git remote -v
