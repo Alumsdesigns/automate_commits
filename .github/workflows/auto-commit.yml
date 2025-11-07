@@ -54,8 +54,8 @@ jobs:
           git status
           git branch
           
-          git config user.name "MarthaTaylor"
-          git config user.email "marthadigitalize@gmail.com"
+          git config user.name "Alumsdesigns"
+          git config user.email "alum.damarise@gmail.com"
 
           echo "✅ Current user info:"
 
